@@ -1,0 +1,42 @@
+import { Router } from 'express';
+import healthRoutes from './health.routes.js';
+import authRoutes from './auth.routes.js';
+import serviceCategoryRoutes from './serviceCategory.routes.js';
+import adminRoutes from './admin.routes.js';
+import propertyRoutes from './property.routes.js';
+import spaceRoutes from './space.routes.js';
+import catalogRoutes from './catalog.routes.js';
+import favoriteRoutes from './favorite.routes.js';
+import { propertyMediaRouter, spaceMediaRouter } from './media.routes.js';
+import bookingRoutes from './booking.routes.js';
+import ownerRoutes from './owner.routes.js';
+import notificationRoutes from './notification.routes.js';
+import inspectionRoutes from './inspection.routes.js';
+import inspectionMediaRoutes from './inspectionMedia.routes.js';
+import providerRoutes from './provider.routes.js';
+import maintenanceRoutes from './maintenance.routes.js';
+import expenseRoutes from './expense.routes.js';
+import { authRateLimiter } from '../middleware/rateLimit.js';
+
+const router = Router();
+
+router.use('/health', healthRoutes);
+router.use('/auth', authRateLimiter, authRoutes);
+router.use('/service-categories', serviceCategoryRoutes);
+router.use('/admin', adminRoutes);
+router.use('/properties', propertyRoutes);
+router.use('/spaces', spaceRoutes);
+router.use('/catalog', catalogRoutes);
+router.use('/favorites', favoriteRoutes);
+router.use('/property-media', propertyMediaRouter);
+router.use('/space-media', spaceMediaRouter);
+router.use('/bookings', bookingRoutes);
+router.use('/owner', ownerRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/inspections', inspectionRoutes);
+router.use('/inspection-media', inspectionMediaRoutes);
+router.use('/providers', providerRoutes);
+router.use('/maintenance-requests', maintenanceRoutes);
+router.use('/expenses', expenseRoutes);
+
+export default router;
