@@ -1,0 +1,131 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/bodoni-moda';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-cream: #0D0D0D;
+  --color-sand: #141414;
+  --color-card: #1C1C1C;
+  --color-border: #2A2A2A;
+  --color-primary: #FE6D2C;
+  --color-primary-hover: #E55B1B;
+  --color-amber: #FFA733;
+  --color-success: #4C8C5A;
+  --color-warning: #D98E04;
+  --color-danger: #E04838;
+  --color-ink: #F5F5F5;
+  --color-body: #A3A3A3;
+
+  /* Safe Area Insets for Native Feel */
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+
+@layer base {
+  html {
+    font-family: 'Inter Variable', Inter, system-ui, -apple-system, sans-serif;
+    color: var(--color-ink);
+    background-color: var(--color-cream);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-size-adjust: none;
+    -webkit-text-size-adjust: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100dvh;
+    color: var(--color-body);
+    background-color: var(--color-cream);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    padding-top: var(--sat);
+    padding-left: var(--sal);
+    padding-right: var(--sar);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Fraunces Variable', Fraunces, Georgia, serif;
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  ::selection {
+    background-color: #FE6D2C;
+    color: #FFFFFF;
+  }
+
+  /* Custom Sleek Dark Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0D0D0D;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2A2A2A;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #FE6D2C;
+  }
+}
+
+@layer utilities {
+  /* Safe Area Utilities */
+  .pb-safe {
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+  }
+  .pt-safe {
+    padding-top: max(12px, env(safe-area-inset-top, 12px));
+  }
+
+  /* Focus Ring */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-cream;
+  }
+
+  /* Tag shaped badge */
+  .badge-tag {
+    position: relative;
+    clip-path: polygon(8px 0%, 100% 0%, 100% 100%, 8px 100%, 0% 50%);
+    padding-left: 14px !important;
+  }
+
+  /* Skeleton loading shimmer (Rule 1 compliant - solid tone pulse, zero gradients) */
+  .skeleton-shimmer {
+    background-color: #1F1F1F;
+    animation: skeleton-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-pulse {
+    0%, 100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+
+  /* Bottom sheet slide-up animation */
+  @keyframes slide-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  .animate-slide-up {
+    animation: slide-up 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
