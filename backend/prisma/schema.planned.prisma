@@ -1,0 +1,699 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Role {
+  OWNER
+  CUSTOMER
+  PROVIDER
+  ADMIN
+
+  @@map("role")
+}
+
+enum PropertyStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("property_status")
+}
+
+enum SpaceStatus {
+  AVAILABLE
+  UNAVAILABLE
+  MAINTENANCE
+  ARCHIVED
+
+  @@map("space_status")
+}
+
+enum PriceUnit {
+  HOURLY
+  DAILY
+  MONTHLY
+
+  @@map("price_unit")
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+
+  @@map("verification_status")
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+
+  @@map("maintenance_priority")
+}
+
+enum MaintenanceStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+
+  @@map("maintenance_status")
+}
+
+enum InspectionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+
+  @@map("inspection_status")
+}
+
+enum ItemCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  CRITICAL
+
+  @@map("item_condition")
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  REJECTED
+
+  @@map("booking_status")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  NET_BANKING
+  CASH
+  WALLET
+
+  @@map("payment_method")
+}
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
+  TOOL
+  SYSTEM
+
+  @@map("ai_message_role")
+}
+
+enum AiActionStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  EXECUTED
+  REJECTED
+  FAILED
+
+  @@map("ai_action_status")
+}
+
+// ==========================================
+// MODELS (24 Tables + MediaAsset)
+// ==========================================
+
+/// 1. Profile -> profiles
+/// User profile extending Supabase Auth (auth.users.id)
+model Profile {
+  id        String   @id @db.Uuid
+  name      String   @map("name") @db.VarChar(100)
+  email     String   @unique @map("email") @db.VarChar(254)
+  phone     String?  @map("phone") @db.VarChar(20)
+  role      Role     @default(CUSTOMER) @map("role")
+  isActive  Boolean  @default(true) @map("is_active")
+  avatarUrl String?  @map("avatar_url") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  properties             Property[]
+  serviceProvider        ServiceProvider?
+  maintenanceRequests    MaintenanceRequest[]   @relation("RequesterMaintenanceRequests")
+  maintenanceUpdates     MaintenanceUpdate[]    @relation("AuthorMaintenanceUpdates")
+  inspections            Inspection[]           @relation("InspectorInspections")
+  bookings               Booking[]              @relation("CustomerBookings")
+  cancelledBookings      Booking[]              @relation("CancelledByBookings")
+  bookingStatusHistories BookingStatusHistory[] @relation("ChangedByStatusHistories")
+  payments               Payment[]              @relation("PayerPayments")
+  propertyExpenses       PropertyExpense[]      @relation("AddedByExpenses")
+  favorites              Favorite[]
+  spaceReviews           SpaceReview[]
+  providerReviewsGiven   ProviderReview[]       @relation("ReviewerProviderReviews")
+  notifications          Notification[]
+  aiConversations        AiConversation[]
+  aiActionLogs           AiActionLog[]
+  uploadedMediaAssets    MediaAsset[]           @relation("UploadedByMediaAssets")
+
+  @@map("profiles")
+}
+
+/// 2. Property -> properties
+model Property {
+  id           String         @id @default(uuid()) @db.Uuid
+  ownerId      String         @map("owner_id") @db.Uuid
+  title        String         @map("title") @db.VarChar(200)
+  description  String?        @map("description") @db.Text
+  propertyType String         @map("property_type") @db.VarChar(50)
+  addressLine1 String         @map("address_line1") @db.VarChar(255)
+  addressLine2 String?        @map("address_line2") @db.VarChar(255)
+  city         String         @map("city") @db.VarChar(100)
+  state        String         @map("state") @db.VarChar(100)
+  postalCode   String         @map("postal_code") @db.VarChar(20)
+  country      String         @default("India") @map("country") @db.VarChar(100)
+  latitude     Decimal?       @map("latitude") @db.Decimal(9, 6)
+  longitude    Decimal?       @map("longitude") @db.Decimal(9, 6)
+  status       PropertyStatus @default(DRAFT) @map("status")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  owner               Profile              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  spaces              Space[]
+  media               PropertyMedia[]
+  maintenanceRequests MaintenanceRequest[]
+  inspections         Inspection[]
+  expenses            PropertyExpense[]
+
+  @@index([ownerId])
+  @@map("properties")
+}
+
+/// 3. PropertyMedia -> property_media
+model PropertyMedia {
+  id          String   @id @default(uuid()) @db.Uuid
+  propertyId  String   @map("property_id") @db.Uuid
+  mediaUrl    String   @map("media_url") @db.Text
+  storagePath String   @map("storage_path") @db.VarChar(500)
+  altText     String?  @map("alt_text") @db.VarChar(255)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isCover     Boolean  @default(false) @map("is_cover")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("property_media")
+}
+
+/// 4. Space -> spaces
+model Space {
+  id          String      @id @default(uuid()) @db.Uuid
+  propertyId  String      @map("property_id") @db.Uuid
+  name        String      @map("name") @db.VarChar(100)
+  description String?     @map("description") @db.Text
+  spaceType   String      @map("space_type") @db.VarChar(50)
+  capacity    Int         @map("capacity")
+  priceAmount Decimal     @map("price_amount") @db.Decimal(12, 2)
+  priceUnit   PriceUnit   @map("price_unit")
+  status      SpaceStatus @default(AVAILABLE) @map("status")
+  rules       String?     @map("rules") @db.Text
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  property            Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  media               SpaceMedia[]
+  bookings            Booking[]
+  favorites           Favorite[]
+  spaceReviews        SpaceReview[]
+  maintenanceRequests MaintenanceRequest[]
+
+  @@index([propertyId])
+  @@map("spaces")
+}
+
+/// 5. SpaceMedia -> space_media
+model SpaceMedia {
+  id          String   @id @default(uuid()) @db.Uuid
+  spaceId     String   @map("space_id") @db.Uuid
+  mediaUrl    String   @map("media_url") @db.Text
+  storagePath String   @map("storage_path") @db.VarChar(500)
+  altText     String?  @map("alt_text") @db.VarChar(255)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isCover     Boolean  @default(false) @map("is_cover")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@index([spaceId])
+  @@map("space_media")
+}
+
+/// 6. ServiceCategory -> service_categories
+model ServiceCategory {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique @map("name") @db.VarChar(100)
+  description String? @map("description") @db.Text
+  icon        String? @map("icon") @db.VarChar(100)
+
+  // Relations
+  providers           ServiceProviderCategory[]
+  maintenanceRequests MaintenanceRequest[]
+
+  @@map("service_categories")
+}
+
+/// 7. ServiceProvider -> service_providers
+model ServiceProvider {
+  id                 String             @id @default(uuid()) @db.Uuid
+  profileId          String             @unique @map("profile_id") @db.Uuid
+  businessName       String             @map("business_name") @db.VarChar(150)
+  bio                String?            @map("bio") @db.Text
+  serviceArea        String?            @map("service_area") @db.VarChar(200)
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+  isAvailable        Boolean            @default(true) @map("is_available")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  profile             Profile                   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  categories          ServiceProviderCategory[]
+  maintenanceRequests MaintenanceRequest[]
+  reviews             ProviderReview[]
+
+  @@index([profileId])
+  @@map("service_providers")
+}
+
+/// 8. ServiceProviderCategory -> service_provider_categories
+model ServiceProviderCategory {
+  providerId String @map("provider_id") @db.Uuid
+  categoryId String @map("category_id") @db.Uuid
+
+  // Relations
+  provider ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  category ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([providerId, categoryId])
+  @@index([providerId])
+  @@index([categoryId])
+  @@map("service_provider_categories")
+}
+
+/// 9. MaintenanceRequest -> maintenance_requests
+model MaintenanceRequest {
+  id            String              @id @default(uuid()) @db.Uuid
+  propertyId    String              @map("property_id") @db.Uuid
+  spaceId       String?             @map("space_id") @db.Uuid
+  requesterId   String              @map("requester_id") @db.Uuid
+  providerId    String?             @map("provider_id") @db.Uuid
+  categoryId    String?             @map("category_id") @db.Uuid
+  title         String              @map("title") @db.VarChar(200)
+  description   String              @map("description") @db.Text
+  priority      MaintenancePriority @default(MEDIUM) @map("priority")
+  status        MaintenanceStatus   @default(OPEN) @map("status")
+  scheduledFor  DateTime?           @map("scheduled_for")
+  completedAt   DateTime?           @map("completed_at")
+  estimatedCost Decimal?            @map("estimated_cost") @db.Decimal(12, 2)
+  actualCost    Decimal?            @map("actual_cost") @db.Decimal(12, 2)
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  property       Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  space          Space?              @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+  requester      Profile             @relation("RequesterMaintenanceRequests", fields: [requesterId], references: [id], onDelete: Restrict)
+  provider       ServiceProvider?    @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  category       ServiceCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  updates        MaintenanceUpdate[]
+  expenses       PropertyExpense[]
+  providerReview ProviderReview?
+
+  @@index([propertyId])
+  @@index([spaceId])
+  @@index([requesterId])
+  @@index([providerId])
+  @@index([categoryId])
+  @@map("maintenance_requests")
+}
+
+/// 10. MaintenanceUpdate -> maintenance_updates
+model MaintenanceUpdate {
+  id        String             @id @default(uuid()) @db.Uuid
+  requestId String             @map("request_id") @db.Uuid
+  authorId  String             @map("author_id") @db.Uuid
+  message   String             @map("message") @db.Text
+  newStatus MaintenanceStatus? @map("new_status")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  // Relations
+  request MaintenanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  author  Profile            @relation("AuthorMaintenanceUpdates", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([authorId])
+  @@map("maintenance_updates")
+}
+
+/// 11. Inspection -> inspections
+model Inspection {
+  id             String           @id @default(uuid()) @db.Uuid
+  propertyId     String           @map("property_id") @db.Uuid
+  inspectorId    String           @map("inspector_id") @db.Uuid
+  scheduledFor   DateTime         @map("scheduled_for")
+  completedAt    DateTime?        @map("completed_at")
+  status         InspectionStatus @default(SCHEDULED) @map("status")
+  conditionScore Decimal?         @map("condition_score") @db.Decimal(5, 2)
+  summary        String?          @map("summary") @db.Text
+  reportUrl      String?          @map("report_url") @db.Text
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  property  Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  inspector Profile           @relation("InspectorInspections", fields: [inspectorId], references: [id], onDelete: Restrict)
+  items     InspectionItem[]
+  media     InspectionMedia[]
+
+  @@index([propertyId])
+  @@index([inspectorId])
+  @@map("inspections")
+}
+
+/// 12. InspectionItem -> inspection_items
+model InspectionItem {
+  id           String        @id @default(uuid()) @db.Uuid
+  inspectionId String        @map("inspection_id") @db.Uuid
+  itemName     String        @map("item_name") @db.VarChar(100)
+  category     String        @map("category") @db.VarChar(50)
+  condition    ItemCondition @map("condition")
+  notes        String?       @map("notes") @db.Text
+
+  // Relations
+  inspection Inspection        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  media      InspectionMedia[]
+
+  @@index([inspectionId])
+  @@map("inspection_items")
+}
+
+/// 13. InspectionMedia -> inspection_media
+model InspectionMedia {
+  id               String   @id @default(uuid()) @db.Uuid
+  inspectionId     String   @map("inspection_id") @db.Uuid
+  inspectionItemId String?  @map("inspection_item_id") @db.Uuid
+  mediaUrl         String   @map("media_url") @db.Text
+  storagePath      String   @map("storage_path") @db.VarChar(500)
+  caption          String?  @map("caption") @db.VarChar(255)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  // Relations
+  inspection     Inspection      @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionItem InspectionItem? @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+
+  @@index([inspectionId])
+  @@index([inspectionItemId])
+  @@map("inspection_media")
+}
+
+/// 14. Booking -> bookings
+model Booking {
+  id                 String        @id @default(uuid()) @db.Uuid
+  spaceId            String        @map("space_id") @db.Uuid
+  customerId         String        @map("customer_id") @db.Uuid
+  startTime          DateTime      @map("start_time")
+  endTime            DateTime      @map("end_time")
+  guestCount         Int           @map("guest_count")
+  status             BookingStatus @default(PENDING) @map("status")
+  subtotal           Decimal       @map("subtotal") @db.Decimal(12, 2)
+  taxAmount          Decimal       @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount        Decimal       @map("total_amount") @db.Decimal(12, 2)
+  cancelledAt        DateTime?     @map("cancelled_at")
+  cancelledById      String?       @map("cancelled_by_id") @db.Uuid
+  cancellationReason String?       @map("cancellation_reason") @db.Text
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  space           Space                  @relation(fields: [spaceId], references: [id], onDelete: Restrict)
+  customer        Profile                @relation("CustomerBookings", fields: [customerId], references: [id], onDelete: Restrict)
+  cancelledBy     Profile?               @relation("CancelledByBookings", fields: [cancelledById], references: [id], onDelete: SetNull)
+  statusHistories BookingStatusHistory[]
+  payments        Payment[]
+  review          SpaceReview?
+
+  @@index([spaceId])
+  @@index([customerId])
+  @@index([cancelledById])
+  @@map("bookings")
+}
+
+/// 15. BookingStatusHistory -> booking_status_history
+model BookingStatusHistory {
+  id          String         @id @default(uuid()) @db.Uuid
+  bookingId   String         @map("booking_id") @db.Uuid
+  fromStatus  BookingStatus? @map("from_status")
+  toStatus    BookingStatus  @map("to_status")
+  changedById String         @map("changed_by_id") @db.Uuid
+  note        String?        @map("note") @db.Text
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  // Relations
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  changedBy Profile @relation("ChangedByStatusHistories", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([changedById])
+  @@map("booking_status_history")
+}
+
+/// 16. Payment -> payments
+model Payment {
+  id                   String        @id @default(uuid()) @db.Uuid
+  bookingId            String        @map("booking_id") @db.Uuid
+  payerId              String        @map("payer_id") @db.Uuid
+  amount               Decimal       @map("amount") @db.Decimal(12, 2)
+  currency             String        @default("INR") @map("currency") @db.VarChar(10)
+  method               PaymentMethod @map("method")
+  status               PaymentStatus @default(PENDING) @map("status")
+  transactionReference String?       @map("transaction_reference") @db.VarChar(255)
+  paidAt               DateTime?     @map("paid_at")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  payer   Profile @relation("PayerPayments", fields: [payerId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([payerId])
+  @@map("payments")
+}
+
+/// 17. PropertyExpense -> property_expenses
+model PropertyExpense {
+  id                   String   @id @default(uuid()) @db.Uuid
+  propertyId           String   @map("property_id") @db.Uuid
+  addedById            String   @map("added_by_id") @db.Uuid
+  maintenanceRequestId String?  @map("maintenance_request_id") @db.Uuid
+  category             String   @map("category") @db.VarChar(50)
+  description          String?  @map("description") @db.Text
+  amount               Decimal  @map("amount") @db.Decimal(12, 2)
+  incurredOn           DateTime @map("incurred_on") @db.Date
+  receiptUrl           String?  @map("receipt_url") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  property           Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  addedBy            Profile             @relation("AddedByExpenses", fields: [addedById], references: [id], onDelete: Restrict)
+  maintenanceRequest MaintenanceRequest? @relation(fields: [maintenanceRequestId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId])
+  @@index([addedById])
+  @@index([maintenanceRequestId])
+  @@map("property_expenses")
+}
+
+/// 18. Favorite -> favorites
+model Favorite {
+  customerId String   @map("customer_id") @db.Uuid
+  spaceId    String   @map("space_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  customer Profile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  space    Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, spaceId])
+  @@index([customerId])
+  @@index([spaceId])
+  @@map("favorites")
+}
+
+/// 19. SpaceReview -> space_reviews
+model SpaceReview {
+  id         String   @id @default(uuid()) @db.Uuid
+  bookingId  String   @unique @map("booking_id") @db.Uuid
+  spaceId    String   @map("space_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  rating     Int      @map("rating")
+  comment    String?  @map("comment") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  booking  Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  space    Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  customer Profile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([spaceId])
+  @@index([customerId])
+  @@map("space_reviews")
+}
+
+/// 20. ProviderReview -> provider_reviews
+model ProviderReview {
+  id                   String   @id @default(uuid()) @db.Uuid
+  maintenanceRequestId String   @unique @map("maintenance_request_id") @db.Uuid
+  providerId           String   @map("provider_id") @db.Uuid
+  reviewerId           String   @map("reviewer_id") @db.Uuid
+  rating               Int      @map("rating")
+  comment              String?  @map("comment") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  // Relations
+  maintenanceRequest MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
+  provider           ServiceProvider    @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  reviewer           Profile            @relation("ReviewerProviderReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceRequestId])
+  @@index([providerId])
+  @@index([reviewerId])
+  @@map("provider_reviews")
+}
+
+/// 21. Notification -> notifications
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String   @map("title") @db.VarChar(200)
+  message   String   @map("message") @db.Text
+  type      String   @map("type") @db.VarChar(50)
+  isRead    Boolean  @default(false) @map("is_read")
+  linkUrl   String?  @map("link_url") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+/// 22. AiConversation -> ai_conversations
+model AiConversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?  @map("title") @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user       Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages   AiMessage[]
+  actionLogs AiActionLog[]
+
+  @@index([userId])
+  @@map("ai_conversations")
+}
+
+/// 23. AiMessage -> ai_messages
+model AiMessage {
+  id             String        @id @default(uuid()) @db.Uuid
+  conversationId String        @map("conversation_id") @db.Uuid
+  role           AiMessageRole @map("role")
+  content        String        @map("content") @db.Text
+  toolName       String?       @map("tool_name") @db.VarChar(100)
+  metadata       Json?         @map("metadata")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("ai_messages")
+}
+
+/// 24. AiActionLog -> ai_action_logs
+model AiActionLog {
+  id                   String         @id @default(uuid()) @db.Uuid
+  userId               String         @map("user_id") @db.Uuid
+  conversationId       String?        @map("conversation_id") @db.Uuid
+  action               String         @map("action") @db.VarChar(100)
+  targetType           String?        @map("target_type") @db.VarChar(50)
+  targetId             String?        @map("target_id") @db.Uuid
+  arguments            Json           @map("arguments")
+  requiresConfirmation Boolean        @map("requires_confirmation")
+  confirmedAt          DateTime?      @map("confirmed_at")
+  status               AiActionStatus @default(PENDING_CONFIRMATION) @map("status")
+  result               Json?          @map("result")
+  errorMessage         String?        @map("error_message") @db.Text
+  createdAt            DateTime       @default(now()) @map("created_at")
+
+  // Relations
+  user         Profile         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation AiConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([conversationId])
+  @@map("ai_action_logs")
+}
+
+/// 25. MediaAsset -> media_assets
+/// Global media metadata model tracking file uploads to Supabase Storage
+model MediaAsset {
+  id           String   @id @default(uuid()) @db.Uuid
+  ownerType    String   @map("owner_type") @db.VarChar(50)
+  ownerId      String   @map("owner_id") @db.Uuid
+  bucket       String   @map("bucket") @db.VarChar(100)
+  storagePath  String   @map("storage_path") @db.VarChar(500)
+  mimeType     String   @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int      @map("size_bytes")
+  width        Int?     @map("width")
+  height       Int?     @map("height")
+  altText      String?  @map("alt_text") @db.VarChar(255)
+  sortOrder    Int      @default(0) @map("sort_order")
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  uploadedBy Profile @relation("UploadedByMediaAssets", fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([uploadedById])
+  @@index([ownerType, ownerId])
+  @@map("media_assets")
+}
