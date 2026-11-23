@@ -709,14 +709,3 @@ The project has not been deployed yet. The plan below is guidance for when you d
 | `redirect_uri_mismatch` from Google | Redirect URI in Google Cloud is not exactly `https://<project>.supabase.co/auth/v1/callback` | Correct the URI |
 
 ---
-
-## Credits and license
-
-- Fonts: [Bodoni Moda](https://fonts.google.com/specimen/Bodoni+Moda) and [Inter](https://rsms.me/inter/), loaded through Fontsource
-- Icons: [Lucide](https://lucide.dev)
-- Photos: if you add stock photos, list the photographers in `frontend/public/images/CREDITS.md`
-- Built with Supabase, Prisma, Express, React and Vite
-
-License: add a `LICENSE` file and name it here, for example `MIT`.
-
-**Author:** your name and contact link.
