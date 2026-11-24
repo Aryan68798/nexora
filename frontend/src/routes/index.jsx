@@ -13,6 +13,7 @@ import { SpaceDetailPage } from '../pages/spaces/SpaceDetailPage';
 import { DesignSystemPage } from '../pages/DesignSystemPage';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { SignupPage } from '../pages/auth/SignupPage';
+import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
 import { AuthCallbackPage } from '../pages/auth/AuthCallbackPage';
 import { ProfilePage } from '../pages/account/ProfilePage';
@@ -94,12 +95,16 @@ export function AppRoutes() {
           }
         />
         <Route
-          path="/reset-password"
+          path="/forgot-password"
           element={
             <GuestRoute>
-              <ResetPasswordPage />
+              <ForgotPasswordPage />
             </GuestRoute>
           }
+        />
+        <Route
+          path="/reset-password"
+          element={<ResetPasswordPage />}
         />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
 

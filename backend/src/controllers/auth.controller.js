@@ -18,6 +18,8 @@ export async function getMe(req, res) {
   const { service_providers, ...profileData } = profile;
   sendSuccess(res, {
     ...profileData,
+    avatarUrl: profile.avatar_url || null,
+    isActive: profile.is_active,
     serviceProvider: service_providers || null,
   });
 }

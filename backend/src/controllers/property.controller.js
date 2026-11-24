@@ -117,7 +117,7 @@ export async function getAdminProperties(req, res) {
       orderBy: { created_at: 'desc' },
       include: {
         profiles: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true }, // NEVER expose email or phone publicly
         },
         _count: { select: { spaces: true } },
       },

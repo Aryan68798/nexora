@@ -92,10 +92,11 @@ export function ForbiddenView({ allowedRoles = [] }) {
  * Shows AccountDisabledView if deactivated.
  */
 export function ProtectedRoute({ children }) {
-  const { session, profile, loading, isDisabled } = useAuth();
+  const { session, profile, status, loading, isDisabled } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  // Never redirect while loading or checking profile
+  if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
         <Spinner size="lg" label="Checking authentication..." />
@@ -103,12 +104,12 @@ export function ProtectedRoute({ children }) {
     );
   }
 
-  if (!session || !profile) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
   if (isDisabled) {
     return <AccountDisabledView />;
+  }
+
+  if (!session || !profile) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   return children;
@@ -119,9 +120,9 @@ export function ProtectedRoute({ children }) {
  * Shows ForbiddenView if role not matched.
  */
 export function RoleRoute({ allowedRoles = [], children }) {
-  const { role, loading } = useAuth();
+  const { role, status, loading } = useAuth();
 
-  if (loading) {
+  if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
         <Spinner size="lg" label="Verifying access..." />
@@ -141,10 +142,10 @@ export function RoleRoute({ allowedRoles = [], children }) {
  * Redirects already-authenticated users to their role-appropriate dashboard.
  */
 export function GuestRoute({ children }) {
-  const { session, profile, loading } = useAuth();
+  const { session, profile, status, loading } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
         <Spinner size="lg" label="Loading..." />

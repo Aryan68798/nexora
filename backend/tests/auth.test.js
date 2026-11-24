@@ -3,6 +3,7 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import { supabase } from '../src/lib/supabase.js';
 import { prisma } from '../src/lib/prisma.js';
+import { clearTokenCache } from '../src/middleware/auth.js';
 
 vi.mock('../src/lib/supabase.js', () => ({
   supabase: {
@@ -42,7 +43,11 @@ vi.mock('../src/lib/prisma.js', () => ({
 
 describe('Authentication & Role Middleware', () => {
   beforeEach(() => {
+    clearTokenCache();
     vi.clearAllMocks();
+    prisma.profiles.findUnique.mockReset();
+    prisma.profiles.create.mockReset();
+    prisma.profiles.update.mockReset();
   });
 
   it('should return 401 UNAUTHORIZED when Authorization header is missing', async () => {
@@ -250,13 +255,16 @@ describe('Authentication & Role Middleware', () => {
         error: null,
       });
 
-      prisma.profiles.findUnique.mockResolvedValueOnce({
+      const ownerProfile = {
         id: 'u-owner',
         email: 'owner@test.com',
         role: 'OWNER',
         name: 'Owner',
         is_active: true,
-      });
+      };
+      prisma.profiles.findUnique
+        .mockResolvedValueOnce(ownerProfile)
+        .mockResolvedValueOnce(ownerProfile);
 
       const res = await request(app)
         .post('/api/auth/me/role')
@@ -275,13 +283,16 @@ describe('Authentication & Role Middleware', () => {
         error: null,
       });
 
-      prisma.profiles.findUnique.mockResolvedValueOnce({
+      const custActiveProfile = {
         id: 'u-cust-active',
         email: 'active@test.com',
         role: 'CUSTOMER',
         name: 'Active Cust',
         is_active: true,
-      });
+      };
+      prisma.profiles.findUnique
+        .mockResolvedValueOnce(custActiveProfile)
+        .mockResolvedValueOnce(custActiveProfile);
 
       prisma.bookings.count.mockResolvedValueOnce(1); // has 1 booking
       prisma.payments.count.mockResolvedValueOnce(0);
@@ -304,13 +315,21 @@ describe('Authentication & Role Middleware', () => {
         error: null,
       });
 
-      prisma.profiles.findUnique.mockResolvedValue({
-        id: 'u-clean',
-        email: 'clean@test.com',
-        role: 'CUSTOMER',
-        name: 'Clean Cust',
-        is_active: true,
-      });
+      prisma.profiles.findUnique
+        .mockResolvedValueOnce({
+          id: 'u-clean',
+          email: 'clean@test.com',
+          role: 'CUSTOMER',
+          name: 'Clean Cust',
+          is_active: true,
+        })
+        .mockResolvedValueOnce({
+          id: 'u-clean',
+          email: 'clean@test.com',
+          role: 'CUSTOMER',
+          name: 'Clean Cust',
+          is_active: true,
+        });
 
       prisma.bookings.count.mockResolvedValueOnce(0);
       prisma.payments.count.mockResolvedValueOnce(0);
@@ -333,6 +352,205 @@ describe('Authentication & Role Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.role).toBe('OWNER');
+    });
+  });
+
+  describe('Fallback Profile Creation on requireAuth', () => {
+    it('creates missing profile once with the chosen role (e.g. OWNER)', async () => {
+      const token = 'new-owner-token';
+      supabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: 'u-fallback-owner',
+            email: 'newowner@test.com',
+            user_metadata: { name: 'New Owner Steward', role: 'OWNER' },
+          },
+        },
+        error: null,
+      });
+
+      // Initially profile is missing
+      prisma.profiles.findUnique.mockResolvedValueOnce(null);
+
+      // Prisma create mock
+      prisma.profiles.create.mockResolvedValueOnce({
+        id: 'u-fallback-owner',
+        email: 'newowner@test.com',
+        name: 'New Owner Steward',
+        role: 'OWNER',
+        is_active: true,
+      });
+
+      // Second findUnique when getMe executes
+      prisma.profiles.findUnique.mockResolvedValueOnce({
+        id: 'u-fallback-owner',
+        email: 'newowner@test.com',
+        name: 'New Owner Steward',
+        role: 'OWNER',
+        is_active: true,
+        avatar_url: null,
+        service_providers: null,
+      });
+
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(prisma.profiles.create).toHaveBeenCalledWith({
+        data: {
+          id: 'u-fallback-owner',
+          email: 'newowner@test.com',
+          name: 'New Owner Steward',
+          role: 'OWNER',
+          is_active: true,
+        },
+      });
+      expect(res.body.data.role).toBe('OWNER');
+      expect(res.body.data.name).toBe('New Owner Steward');
+    });
+
+    it('sanitizes ADMIN role in metadata to CUSTOMER', async () => {
+      const token = 'malicious-admin-token';
+      supabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: 'u-fake-admin',
+            email: 'hacker@test.com',
+            user_metadata: { name: 'Fake Admin', role: 'ADMIN' },
+          },
+        },
+        error: null,
+      });
+
+      prisma.profiles.findUnique.mockResolvedValueOnce(null);
+      prisma.profiles.create.mockResolvedValueOnce({
+        id: 'u-fake-admin',
+        email: 'hacker@test.com',
+        name: 'Fake Admin',
+        role: 'CUSTOMER',
+        is_active: true,
+      });
+      prisma.profiles.findUnique.mockResolvedValueOnce({
+        id: 'u-fake-admin',
+        email: 'hacker@test.com',
+        name: 'Fake Admin',
+        role: 'CUSTOMER',
+        is_active: true,
+        avatar_url: null,
+        service_providers: null,
+      });
+
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(prisma.profiles.create).toHaveBeenCalledWith({
+        data: {
+          id: 'u-fake-admin',
+          email: 'hacker@test.com',
+          name: 'Fake Admin',
+          role: 'CUSTOMER',
+          is_active: true,
+        },
+      });
+      expect(res.body.data.role).toBe('CUSTOMER');
+    });
+
+    it('sanitizes an invalid role in metadata to CUSTOMER', async () => {
+      const token = 'invalid-role-token';
+      supabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: 'u-invalid-role',
+            email: 'invalid@test.com',
+            user_metadata: { name: 'Invalid Role User', role: 'SUPERUSER' },
+          },
+        },
+        error: null,
+      });
+
+      prisma.profiles.findUnique.mockResolvedValueOnce(null);
+      prisma.profiles.create.mockResolvedValueOnce({
+        id: 'u-invalid-role',
+        email: 'invalid@test.com',
+        name: 'Invalid Role User',
+        role: 'CUSTOMER',
+        is_active: true,
+      });
+      prisma.profiles.findUnique.mockResolvedValueOnce({
+        id: 'u-invalid-role',
+        email: 'invalid@test.com',
+        name: 'Invalid Role User',
+        role: 'CUSTOMER',
+        is_active: true,
+        avatar_url: null,
+        service_providers: null,
+      });
+
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(prisma.profiles.create).toHaveBeenCalledWith({
+        data: {
+          id: 'u-invalid-role',
+          email: 'invalid@test.com',
+          name: 'Invalid Role User',
+          role: 'CUSTOMER',
+          is_active: true,
+        },
+      });
+      expect(res.body.data.role).toBe('CUSTOMER');
+    });
+
+    it('tolerates concurrent race conditions (P2002) and reloads the single created row', async () => {
+      const token = 'race-token-123';
+      supabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: 'u-race-user',
+            email: 'race@test.com',
+            user_metadata: { name: 'Race User', role: 'PROVIDER' },
+          },
+        },
+        error: null,
+      });
+
+      // Initially findUnique returns null
+      prisma.profiles.findUnique.mockResolvedValueOnce(null);
+
+      // create throws P2002 unique constraint violation
+      const p2002Error = new Error('Unique constraint failed on the fields: (`id`)');
+      p2002Error.code = 'P2002';
+      prisma.profiles.create.mockRejectedValueOnce(p2002Error);
+
+      // Catch block calls findUnique which now finds the profile created by parallel request
+      const existingProfile = {
+        id: 'u-race-user',
+        email: 'race@test.com',
+        name: 'Race User',
+        role: 'PROVIDER',
+        is_active: true,
+      };
+      prisma.profiles.findUnique.mockResolvedValueOnce(existingProfile);
+
+      // getMe calls findUnique
+      prisma.profiles.findUnique.mockResolvedValueOnce({
+        ...existingProfile,
+        avatar_url: null,
+        service_providers: null,
+      });
+
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.role).toBe('PROVIDER');
+      expect(res.body.data.name).toBe('Race User');
     });
   });
 });

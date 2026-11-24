@@ -39,7 +39,7 @@ export function resolvePostLoginPath(profile, returnTo) {
   const cleanPath = trimmed.split('?')[0].split('#')[0];
 
   // Banned paths: root and auth routes must never be the post-login destination
-  const banned = ['/', '/login', '/signup', '/auth/callback', '/reset-password'];
+  const banned = ['/', '/login', '/signup', '/auth/callback', '/reset-password', '/forgot-password'];
   if (banned.includes(cleanPath)) {
     return defaultPath;
   }

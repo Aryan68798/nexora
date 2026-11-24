@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowRight, Compass, Building, Wrench, Check } from 'lucide-react';
+import { ArrowRight, Compass, Building, Wrench, Check, AlertCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../features/auth/useAuth';
-import { getRoleDashboardPath } from '../../routes/guards';
+import { resolvePostLoginPath } from '../../lib/postLoginRedirect';
+import { mapAuthError } from '../../features/auth/authErrors';
 import { Input } from '../../components/ui/Input';
 import { PasswordInput } from '../../components/ui/PasswordInput';
 import { FormField } from '../../components/ui/FormField';
@@ -14,6 +15,9 @@ import { Stepper } from '../../components/ui/Stepper';
 import { GoogleSignInButton } from '../../components/auth/GoogleSignInButton';
 import { BrandWordmark } from '../../components/layout/PublicLayout';
 import { cn } from '../../lib/utils';
+
+// Re-export mapAuthError as mapSignupError for compatibility
+export { mapAuthError as mapSignupError };
 
 // Password strength evaluator
 function calculatePasswordStrength(pass) {
@@ -30,19 +34,33 @@ function calculatePasswordStrength(pass) {
   return { score: 4, label: 'Strong', color: 'bg-success' };
 }
 
+// Zod schema with strict rules
 const signupSchema = z
   .object({
     role: z.enum(['CUSTOMER', 'OWNER', 'PROVIDER'], {
       required_error: 'Please choose an account type',
     }),
-    fullName: z.string().min(2, 'Name must be at least 2 characters'),
-    email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
+    fullName: z
+      .string()
+      .trim()
+      .min(2, 'Name must be at least 2 characters')
+      .max(100, 'Name cannot exceed 100 characters'),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .min(1, 'Email is required')
+      .email('Enter a valid email address'),
     phone: z
       .string()
       .regex(/^(\+91)?[6-9]\d{9}$/, 'Enter a valid Indian phone number (e.g. +919876543210)')
       .optional()
       .or(z.literal('')),
-    password: z.string().min(8, 'Password must be at least 8 characters'),
+    password: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .regex(/[A-Za-z]/, 'Password must include at least one letter')
+      .regex(/[0-9]/, 'Password must include at least one number'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
     agreeTerms: z.literal(true, {
       errorMap: () => ({ message: 'You must agree to the terms to proceed' }),
@@ -64,21 +82,15 @@ export function SignupPage() {
   const [step, setStep] = useState(0); // 0: Select Role, 1: Account Details
   const [authError, setAuthError] = useState(null);
   const [successInfo, setSuccessInfo] = useState(false);
+  const [submittedEmail, setSubmittedEmail] = useState('');
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendStatus, setResendStatus] = useState(null); // 'sending' | 'sent' | 'error'
 
-  const { signUp, signInWithGoogle } = useAuth();
+  const submittingRef = useRef(false);
+
+  const { signUp, signInWithGoogle, session, retryProfile, resendConfirmationEmail } = useAuth();
   const navigate = useNavigate();
-
-  const handleGoogleSignUp = async (roleToUse) => {
-    setAuthError(null);
-    setGoogleLoading(true);
-    try {
-      await signInWithGoogle({ role: roleToUse || selectedRole });
-    } catch (err) {
-      setAuthError(err.message || 'Failed to initialize Google sign-in');
-      setGoogleLoading(false);
-    }
-  };
 
   const {
     register,
@@ -103,6 +115,38 @@ export function SignupPage() {
   const selectedRole = watch('role');
   const watchedPassword = watch('password', '');
   const passStrength = calculatePasswordStrength(watchedPassword);
+
+  // Sync role if ?role= query changes (never ADMIN)
+  useEffect(() => {
+    if (roleParam === 'owner' || roleParam === 'provider' || roleParam === 'customer') {
+      setValue('role', roleParam.toUpperCase());
+    }
+  }, [roleParam, setValue]);
+
+  // Resend countdown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
+
+  const handleGoogleSignUp = async (roleToUse) => {
+    setAuthError(null);
+    setGoogleLoading(true);
+    try {
+      const targetRole = roleToUse || selectedRole;
+      const safeRole = (targetRole === 'OWNER' || targetRole === 'PROVIDER') ? targetRole : 'CUSTOMER';
+      await signInWithGoogle({
+        role: safeRole,
+        returnTo: searchParams.get('returnTo') || undefined,
+      });
+    } catch (err) {
+      setAuthError(mapAuthError(err));
+      setGoogleLoading(false);
+    }
+  };
 
   const roles = [
     {
@@ -136,46 +180,117 @@ export function SignupPage() {
   };
 
   const onSubmit = async (values) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setAuthError(null);
+
     try {
       const res = await signUp({
+        name: values.fullName,
+        fullName: values.fullName,
         email: values.email,
         password: values.password,
-        fullName: values.fullName,
-        phone: values.phone || null,
         role: values.role,
       });
 
-      // If Supabase requires email confirmation, res.session might be null
+      // If Supabase requires email confirmation, res.session is null
       if (res?.user && !res?.session) {
+        setSubmittedEmail(values.email);
         setSuccessInfo(true);
-      } else if (res?.profile) {
-        navigate(getRoleDashboardPath(res.profile.role), { replace: true });
-      } else {
-        navigate(getRoleDashboardPath(values.role), { replace: true });
+        return;
       }
+
+      if (res?.profile) {
+        const returnTo = searchParams.get('returnTo');
+        const dest = resolvePostLoginPath(res.profile, returnTo);
+        navigate(dest, { replace: true });
+        return;
+      }
+
+      // If session exists but profile was not returned, profile loading failed
+      throw new Error('Unable to retrieve user profile');
     } catch (err) {
-      setAuthError(err.message || 'Unable to register account. Please check your credentials.');
+      setAuthError(mapAuthError(err));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
+  const handleRetry = async () => {
+    const currentAction = authError?.action;
+    setAuthError(null);
+
+    if (currentAction === 'retry_profile' && session) {
+      try {
+        const userProfile = await retryProfile();
+        if (userProfile) {
+          const returnTo = searchParams.get('returnTo');
+          navigate(resolvePostLoginPath(userProfile, returnTo), { replace: true });
+        } else {
+          throw new Error('Unable to retrieve user profile');
+        }
+      } catch (err) {
+        setAuthError(mapAuthError(err));
+      }
+    } else {
+      handleSubmit(onSubmit)();
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (resendCooldown > 0 || !submittedEmail) return;
+    setResendStatus('sending');
+    try {
+      await resendConfirmationEmail(submittedEmail);
+      setResendStatus('sent');
+      setResendCooldown(60); // 60 seconds countdown
+    } catch (err) {
+      setResendStatus('error');
+      setAuthError(mapAuthError(err));
+    }
+  };
+
+  // Step 3 / Success: Check your inbox
   if (successInfo) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center p-6 text-ink">
         <div className="max-w-md w-full bg-card rounded-2xl p-8 border border-border shadow-warm-sm text-center">
-          <div className="w-12 h-12 rounded-full bg-success/10 text-success-700 flex items-center justify-center mx-auto mb-4">
+          <div className="w-12 h-12 rounded-full bg-success/10 text-success flex items-center justify-center mx-auto mb-4">
             <Check className="w-6 h-6" />
           </div>
-          <h2 className="text-2xl font-bold text-ink mb-2">Check your email</h2>
-          <p className="text-body text-sm leading-relaxed mb-6">
-            We have sent a verification email to your address. Please click the link inside
-            to activate your Nexora account.
+          <h2 className="text-2xl font-bold text-ink mb-2">Check your inbox</h2>
+          <p className="text-body text-sm leading-relaxed mb-3">
+            We have dispatched a verification email to:
           </p>
-          <Link to="/login">
-            <Button variant="primary" className="w-full justify-center active:scale-[0.98]">
-              Go to Sign In
+          <div className="p-3 bg-sand rounded-xl border border-border text-ink font-mono text-xs mb-6 break-all">
+            {submittedEmail}
+          </div>
+          <p className="text-body text-xs leading-relaxed mb-6">
+            Click the link in the message to activate your Nexora account and start managing or booking workspaces.
+          </p>
+
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full justify-center text-xs"
+              onClick={handleResendConfirmation}
+              disabled={resendCooldown > 0 || resendStatus === 'sending'}
+              leftIcon={<RefreshCw className={cn('w-3.5 h-3.5', resendStatus === 'sending' && 'animate-spin')} />}
+            >
+              {resendCooldown > 0
+                ? `Resend available in ${resendCooldown}s`
+                : resendStatus === 'sent'
+                ? 'Email Resent!'
+                : 'Resend confirmation email'}
             </Button>
-          </Link>
+
+            <Link to="/login" className="block w-full">
+              <Button variant="primary" className="w-full justify-center active:scale-[0.98]">
+                Back to Sign In
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -227,6 +342,34 @@ export function SignupPage() {
                 </p>
               </div>
 
+              {authError && (
+                <div
+                  className="p-4 rounded-xl bg-danger/10 border border-danger/30 text-danger text-sm mb-6"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  <p className="font-medium text-danger">{authError.message}</p>
+                  <div className="flex items-center gap-3 mt-3">
+                    {authError.action === 'signin' ? (
+                      <Link
+                        to="/login"
+                        className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-hover text-xs font-semibold transition-colors focus-ring"
+                      >
+                        Sign in instead
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-lg bg-danger/20 hover:bg-danger/30 text-danger text-xs font-semibold transition-colors focus-ring active:scale-95"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-3 mb-8">
                 {roles.map((r) => {
                   const Icon = r.icon;
@@ -240,7 +383,7 @@ export function SignupPage() {
                       aria-label={r.title}
                       onClick={() => setValue('role', r.id)}
                       className={cn(
-                        'w-full text-left p-4 rounded-xl border transition-all flex items-start gap-4 focus-ring active:scale-[0.99]',
+                        'w-full text-left p-4 rounded-xl border transition-all flex items-start gap-4 focus-ring active:scale-[0.99] min-h-[44px]',
                         isSelected
                           ? 'border-primary bg-primary/5 shadow-warm-xs'
                           : 'border-border bg-card hover:bg-sand/40 hover:border-border/80'
@@ -281,7 +424,7 @@ export function SignupPage() {
                 type="button"
                 variant="primary"
                 size="lg"
-                className="w-full justify-center shadow-warm-sm active:scale-[0.98]"
+                className="w-full justify-center shadow-warm-sm active:scale-[0.98] min-h-[44px]"
                 onClick={handleNextStep}
                 disabled={googleLoading}
                 rightIcon={<ArrowRight className="w-4 h-4" />}
@@ -301,6 +444,7 @@ export function SignupPage() {
               <GoogleSignInButton
                 onClick={() => handleGoogleSignUp(selectedRole)}
                 loading={googleLoading}
+                disabled={googleLoading}
                 className="w-full"
               />
             </div>
@@ -309,16 +453,19 @@ export function SignupPage() {
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl sm:text-3xl font-bold text-ink tracking-tight mb-1">
-                    Your Details
+                    Your details
                   </h2>
                   <p className="text-body text-sm">
-                    Creating account as <span className="font-semibold text-primary">{selectedRole}</span>
+                    Signing up as a{' '}
+                    <span className="font-semibold text-primary">
+                      {roles.find((r) => r.id === selectedRole)?.title}
+                    </span>
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setStep(0)}
-                  className="text-xs font-medium text-primary hover:underline focus-ring rounded"
+                  className="text-xs text-primary font-medium hover:underline focus-ring rounded p-1 min-h-[44px] flex items-center"
                 >
                   Change role
                 </button>
@@ -328,8 +475,30 @@ export function SignupPage() {
                 <div
                   className="p-4 rounded-xl bg-danger/10 border border-danger/30 text-danger text-sm mb-6"
                   role="alert"
+                  aria-live="polite"
                 >
-                  {authError}
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <p className="font-medium text-danger">{authError.message}</p>
+                  </div>
+                  <div className="flex items-center gap-3 mt-3">
+                    {authError.action === 'signin' ? (
+                      <Link
+                        to="/login"
+                        className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-hover text-xs font-semibold transition-colors focus-ring"
+                      >
+                        Sign in instead
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-lg bg-danger/20 hover:bg-danger/30 text-danger text-xs font-semibold transition-colors focus-ring active:scale-95"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -338,7 +507,10 @@ export function SignupPage() {
                   <Input
                     placeholder="Your legal name"
                     autoComplete="name"
+                    inputMode="text"
                     hasError={Boolean(errors.fullName)}
+                    aria-invalid={Boolean(errors.fullName)}
+                    className="text-base sm:text-sm min-h-[44px]"
                     {...register('fullName')}
                   />
                 </FormField>
@@ -348,7 +520,10 @@ export function SignupPage() {
                     type="email"
                     placeholder="name@example.com"
                     autoComplete="email"
+                    inputMode="email"
                     hasError={Boolean(errors.email)}
+                    aria-invalid={Boolean(errors.email)}
+                    className="text-base sm:text-sm min-h-[44px]"
                     {...register('email')}
                   />
                 </FormField>
@@ -362,7 +537,9 @@ export function SignupPage() {
                     type="tel"
                     placeholder="+919876543210"
                     autoComplete="tel"
+                    inputMode="tel"
                     hasError={Boolean(errors.phone)}
+                    className="text-base sm:text-sm min-h-[44px]"
                     {...register('phone')}
                   />
                 </FormField>
@@ -375,10 +552,14 @@ export function SignupPage() {
                     placeholder="At least 8 characters"
                     autoComplete="new-password"
                     hasError={Boolean(errors.password)}
+                    aria-invalid={Boolean(errors.password)}
+                    className="text-base sm:text-sm min-h-[44px]"
                     {...register('password')}
                   />
                   {errors.password && (
-                    <p className="text-xs text-danger mt-1">{errors.password.message}</p>
+                    <p className="text-xs text-danger mt-1" role="alert" aria-live="polite">
+                      {errors.password.message}
+                    </p>
                   )}
 
                   {/* Password Strength Meter */}
@@ -414,12 +595,14 @@ export function SignupPage() {
                     placeholder="Re-enter your password"
                     autoComplete="new-password"
                     hasError={Boolean(errors.confirmPassword)}
+                    aria-invalid={Boolean(errors.confirmPassword)}
+                    className="text-base sm:text-sm min-h-[44px]"
                     {...register('confirmPassword')}
                   />
                 </FormField>
 
                 <div className="pt-2">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
+                  <label className="flex items-start gap-2.5 cursor-pointer min-h-[44px]">
                     <input
                       type="checkbox"
                       className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-primary/20 accent-primary"
@@ -438,7 +621,9 @@ export function SignupPage() {
                     </span>
                   </label>
                   {errors.agreeTerms && (
-                    <p className="text-xs text-danger mt-1">{errors.agreeTerms.message}</p>
+                    <p className="text-xs text-danger mt-1" role="alert" aria-live="polite">
+                      {errors.agreeTerms.message}
+                    </p>
                   )}
                 </div>
 
@@ -446,9 +631,9 @@ export function SignupPage() {
                   type="submit"
                   variant="primary"
                   size="lg"
-                  className="w-full justify-center shadow-warm-sm mt-4 active:scale-[0.98]"
+                  className="w-full justify-center shadow-warm-sm mt-4 active:scale-[0.98] min-h-[44px]"
                   loading={isSubmitting}
-                  disabled={googleLoading}
+                  disabled={googleLoading || isSubmitting}
                   rightIcon={<ArrowRight className="w-4 h-4" />}
                 >
                   Create {selectedRole} Account
@@ -467,7 +652,7 @@ export function SignupPage() {
               <GoogleSignInButton
                 onClick={() => handleGoogleSignUp(selectedRole)}
                 loading={googleLoading}
-                disabled={isSubmitting}
+                disabled={isSubmitting || googleLoading}
                 className="w-full"
               />
             </div>
@@ -478,7 +663,7 @@ export function SignupPage() {
               Already have an account?{' '}
               <Link
                 to="/login"
-                className="font-medium text-primary hover:underline focus-ring rounded transition-colors"
+                className="font-medium text-primary hover:underline focus-ring rounded transition-colors inline-block min-h-[44px] py-2"
               >
                 Sign in instead
               </Link>

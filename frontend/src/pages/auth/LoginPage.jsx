@@ -75,7 +75,7 @@ export function LoginPage() {
             <BrandWordmark />
           </Link>
 
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-ink tracking-tight leading-tight mb-4">
+          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-ink tracking-tight leading-tight mb-4">
             Sign in to your account.
           </h1>
 
@@ -135,6 +135,7 @@ export function LoginPage() {
             <FormField label="Email Address" error={errors.email?.message} required>
               <Input
                 type="email"
+                inputMode="email"
                 placeholder="you@example.com"
                 autoComplete="email"
                 hasError={Boolean(errors.email)}
@@ -148,7 +149,7 @@ export function LoginPage() {
                   Password <span className="text-primary">*</span>
                 </label>
                 <Link
-                  to="/reset-password"
+                  to="/forgot-password"
                   className="text-xs font-medium text-primary-hover hover:underline transition-colors focus-ring rounded"
                 >
                   Forgot password?

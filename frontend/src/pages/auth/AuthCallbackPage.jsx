@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../features/auth/useAuth';
-import { getRoleDashboardPath } from '../../routes/guards';
+import { resolvePostLoginPath } from '../../lib/postLoginRedirect';
 import { Button } from '../../components/ui/Button';
 import { BrandWordmark } from '../../components/layout/PublicLayout';
 
@@ -167,7 +167,7 @@ export function AuthCallbackPage() {
         sessionStorage.removeItem('nexora:auth_return_to');
 
         if (!active) return;
-        const destination = returnTo || (profile?.role === 'CUSTOMER' ? '/explore' : getRoleDashboardPath(profile?.role));
+        const destination = resolvePostLoginPath(profile, returnTo);
         navigate(destination, { replace: true });
       } catch (err) {
         if (!active) return;

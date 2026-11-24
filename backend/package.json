@@ -26,6 +26,8 @@
     "smoke:maintenance": "node scripts/smoke-maintenance.js",
     "smoke:expenses": "node scripts/smoke-expenses.js",
     "smoke:dashboard": "node scripts/smoke-dashboard.js",
+    "auth:diagnose": "node scripts/auth-diagnose.js",
+    "auth:e2e": "node scripts/auth-e2e.js",
     "bookings:expire": "node scripts/expire-bookings.js",
     "prisma:validate": "prisma validate",
     "prisma:format": "prisma format",

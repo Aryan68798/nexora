@@ -32,6 +32,10 @@ function setInCache(tokenHash, user) {
   });
 }
 
+export function clearTokenCache() {
+  tokenCache.clear();
+}
+
 export async function resolveUserFromToken(token) {
   const tokenHash = hashToken(token);
   const cached = getFromCache(tokenHash);
@@ -54,26 +58,49 @@ export async function resolveUserFromToken(token) {
     where: { id: authUser.id },
   });
 
-  // Profile missing (e.g. trigger delayed or custom signup) -> create it once with role CUSTOMER
+  // Profile missing (e.g. trigger delayed or custom signup) -> create it safely
   if (!profile) {
-    const fallbackName =
-      authUser.user_metadata?.name ||
-      authUser.user_metadata?.full_name ||
-      authUser.email.split('@')[0] ||
-      'User';
+    let rawName = typeof authUser.user_metadata?.name === 'string'
+      ? authUser.user_metadata.name.trim()
+      : (typeof authUser.user_metadata?.full_name === 'string'
+        ? authUser.user_metadata.full_name.trim()
+        : '');
+    if (rawName.length < 2 || rawName.length > 100) {
+      rawName = authUser.email.split('@')[0] || 'User';
+    }
 
-    profile = await prisma.profiles.create({
-      data: {
-        id: authUser.id,
-        email: authUser.email,
-        name: fallbackName,
-        role: 'CUSTOMER',
-        is_active: true,
-      },
-    });
+    const rawRole = typeof authUser.user_metadata?.role === 'string'
+      ? authUser.user_metadata.role.trim().toUpperCase()
+      : '';
+    const safeRole = (rawRole === 'OWNER' || rawRole === 'PROVIDER' || rawRole === 'CUSTOMER')
+      ? rawRole
+      : 'CUSTOMER';
+    // Strictly prevent ADMIN in fallback profile creation
+    const finalRole = safeRole === 'ADMIN' ? 'CUSTOMER' : safeRole;
+
+    try {
+      profile = await prisma.profiles.create({
+        data: {
+          id: authUser.id,
+          email: authUser.email,
+          name: rawName,
+          role: finalRole,
+          is_active: true,
+        },
+      });
+    } catch (err) {
+      // Catch unique constraint violation (P2002) in case of concurrent creation race
+      if (err.code === 'P2002' || err?.message?.includes('Unique constraint') || err?.message?.includes('P2002')) {
+        profile = await prisma.profiles.findUnique({
+          where: { id: authUser.id },
+        });
+      } else {
+        throw err;
+      }
+    }
   }
 
-  if (profile.is_active === false) {
+  if (profile?.is_active === false) {
     throw new AppError(403, 'ACCOUNT_DISABLED', 'Account is disabled. Please contact support.');
   }
 
